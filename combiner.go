@@ -8,6 +8,8 @@ import (
 	_ "image/png"
 	_ "image/jpeg"
 	"image/png"
+	"fmt"
+	"github.com/nfnt/resize"
 )
 
 // Create a struct to deal with pixel
@@ -54,6 +56,13 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	if (img1.Bounds().Max.X > img2.Bounds().Max.X) {
+		img1 = resize.Resize(uint(img2.Bounds().Max.X), 0, img1, resize.Lanczos3)
+	} else if (img1.Bounds().Max.X < img2.Bounds().Max.X ) {
+		img2 = resize.Resize(uint(img1.Bounds().Max.X), 0, img2, resize.Lanczos3)
+	}
+
 	// collect pixel data from each image
 	pixels1 := DecodePixelsFromImage(img1, 0, 0)
 	// the second image has a Y-offset of img1's max Y (appended at bottom)
