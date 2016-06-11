@@ -18,6 +18,12 @@ type Pixel struct {
 	Color color.Color
 }
 
+func ResizeTo(img *image.Image, x int) {
+	if ((*img).Bounds().Max.X != x) {
+		*img = resize.Resize(uint(x), 0, *img, resize.Lanczos3)
+	}
+}
+
 // Keep it DRY so don't have to repeat opening file and decode
 func OpenAndDecode(filepath string) (image.Image, string, error) {
 	imgFile, err := os.Open(filepath)
@@ -57,11 +63,18 @@ func main() {
 		panic(err)
 	}
 
+	x := img1.Bounds().Max.X;
+
+
 	if (img1.Bounds().Max.X > img2.Bounds().Max.X) {
-		img1 = resize.Resize(uint(img2.Bounds().Max.X), 0, img1, resize.Lanczos3)
-	} else if (img1.Bounds().Max.X < img2.Bounds().Max.X ) {
-		img2 = resize.Resize(uint(img1.Bounds().Max.X), 0, img2, resize.Lanczos3)
+		x = img2.Bounds().Max.X;
 	}
+
+	ResizeTo(&img1, x)
+	ResizeTo(&img2, x)
+
+	fmt.Println(img1.Bounds())
+	fmt.Println(img2.Bounds())
 
 	// collect pixel data from each image
 	pixels1 := DecodePixelsFromImage(img1, 0, 0)
