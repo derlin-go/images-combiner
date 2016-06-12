@@ -16,13 +16,17 @@ import (
 	"errors"
 )
 
-func ResizeTo(img *image.Image, x int) {
-	if ((*img).Bounds().Max.X != x) {
-		*img = resize.Resize(uint(x), 0, *img, resize.NearestNeighbor)
+// ResizeTo is a wrapper around resize.Resize, which resize INPLACE
+// img to the given width while preserving its aspect ratio.
+// note that if the image width equals the new width, no manipulation
+// is made.
+func ResizeTo(img *image.Image, width int) {
+	if ((*img).Bounds().Max.X != width) {
+		*img = resize.Resize(uint(width), 0, *img, resize.NearestNeighbor)
 	}
 }
 
-// Keep it DRY so don't have to repeat opening file and decode
+// Open and decode an image from a file
 func OpenAndDecode(filepath string) (image.Image, string, error) {
 	imgFile, err := os.Open(filepath)
 	if err != nil {
@@ -36,6 +40,8 @@ func OpenAndDecode(filepath string) (image.Image, string, error) {
 	return img, format, nil
 }
 
+// Try to interpret an hex string as an RGBA color. If the alpha
+// component is missing, it will be interpreted as 0xFF (opaque)
 func ParseColor(hexString string) (color.Color, error) {
 	bs, _ := hex.DecodeString(hexString)
 	var alpha uint8 = 255;
@@ -56,13 +62,16 @@ func main() {
 	var yGapColor color.Color;
 	var bgColor color.Color = color.Transparent;
 
+	// --------- program arguments
+
+	// register and parse program arguments
 	flag.IntVar(&yGap, "gap", 0, "gap between images");
 	flag.BoolVar(&opaque, "opaque", false, "replace transparency by white or bgColor (if defined)");
 	flag.StringVar(&yGapStrColor, "gapColor", "", "color of gap between images, as an hex string");
 	flag.StringVar(&bgStrColor, "bgColor", "", "replace alpha to (leave empty to keep transparency");
 	flag.Parse();
 
-
+	// handle the bgColor argument: convert str -> color + set the gap color to the bg color by default
 	if opaque || bgStrColor != "" {
 		if bgStrColor != "" {
 			var err error;
@@ -77,6 +86,7 @@ func main() {
 		yGapColor = bgColor;
 	}
 
+	// if the gap color is defined, try to convert the string to a color
 	if yGapStrColor != "" {
 		// default to bgcolor
 		var err error;
@@ -87,10 +97,13 @@ func main() {
 		}
 	}
 
+	// --------- load and resize images
+
 	image_paths := os.Args[len(os.Args) - flag.NArg():]
 	images := make([]image.Image, len(image_paths))
 	width := math.MaxInt32;
 
+	// open and decode the images, while keeping track of the smallest width
 	for idx, path := range (image_paths) {
 		img, _, _ := OpenAndDecode(path)
 		if img.Bounds().Max.X < width {
@@ -99,6 +112,7 @@ func main() {
 		images[idx] = img
 	}
 
+	// resize all the images
 	height := 0
 	for i, img := range (images) {
 		ResizeTo(&img, width)
@@ -106,26 +120,32 @@ func main() {
 		images[i] = img
 	}
 
+	// -------- create the composite image
+
+	// first, create a uniform image
 	compositeImage := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(compositeImage, compositeImage.Bounds(), &image.Uniform{bgColor}, image.ZP, draw.Src)
+	// the offset is where to draw the next image (default to 0,0)
 	offset := image.ZP
 	var gapImg *image.RGBA;
 
+	// the gapImg is used/drawn only in case gap color != bg color
 	if yGap > 0 && yGapColor != bgColor {
 		gapImg = image.NewRGBA(image.Rect(0, 0, width, yGap))
 		draw.Draw(gapImg, gapImg.Bounds(), &image.Uniform{yGapColor}, image.ZP, draw.Src)
 	}
 
+	// draw each image over the composite image
 	for _, img := range (images) {
 		draw.Draw(compositeImage, img.Bounds().Add(offset), img, image.ZP, draw.Over)
 		offset.Y += img.Bounds().Max.Y
-		if gapImg != nil {
+		if gapImg != nil { // gap color != bg color, draw it
 			draw.Draw(compositeImage, img.Bounds().Add(offset), gapImg, image.ZP, draw.Over)
 		}
 		offset.Y += yGap
 	}
 
-	// Create a new file and write to it
+	// Create a new file and write the composite image in png format
 	out, err := os.Create("./output.png")
 	if err != nil {
 		panic(err)
