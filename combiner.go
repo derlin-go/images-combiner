@@ -8,8 +8,9 @@ import (
 	_ "image/png"
 	_ "image/jpeg"
 	"image/png"
-	"fmt"
 	"github.com/nfnt/resize"
+	"math"
+	"fmt"
 )
 
 // Create a struct to deal with pixel
@@ -54,41 +55,36 @@ func DecodePixelsFromImage(img image.Image, offsetX, offsetY int) []*Pixel {
 }
 
 func main() {
-	img1, _, err := OpenAndDecode("image1.jpg")
-	if err != nil {
-		panic(err)
+
+	image_paths := os.Args[1:];
+
+	images := make([]image.Image, len(image_paths))
+	var pixels []*Pixel;
+	x := math.MaxInt32;
+
+	for idx, path := range (image_paths) {
+		img, _, _ := OpenAndDecode(path);
+		if img.Bounds().Max.X < x {
+			x = img.Bounds().Max.X
+		}
+		images[idx] = img
 	}
-	img2, _, err := OpenAndDecode("image2.jpg")
-	if err != nil {
-		panic(err)
+
+	offset := 0;
+	for _, img := range (images) {
+		ResizeTo(&img, x)
+		pixels = append(pixels, DecodePixelsFromImage(img, 0, offset)...);
+		offset += img.Bounds().Max.Y;
 	}
-
-	x := img1.Bounds().Max.X;
-
-
-	if (img1.Bounds().Max.X > img2.Bounds().Max.X) {
-		x = img2.Bounds().Max.X;
-	}
-
-	ResizeTo(&img1, x)
-	ResizeTo(&img2, x)
-
-	fmt.Println(img1.Bounds())
-	fmt.Println(img2.Bounds())
-
-	// collect pixel data from each image
-	pixels1 := DecodePixelsFromImage(img1, 0, 0)
-	// the second image has a Y-offset of img1's max Y (appended at bottom)
-	pixels2 := DecodePixelsFromImage(img2, 0, img1.Bounds().Max.Y)
-	pixelSum := append(pixels1, pixels2...)
-
+	pixelSum := append(pixels)
+	fmt.Print()
 	// Set a new size for the new image equal to the max width
 	// of bigger image and max height of two images combined
 	newRect := image.Rectangle{
-		Min: img1.Bounds().Min,
+		Min: images[0].Bounds().Min,
 		Max: image.Point{
-			X: img2.Bounds().Max.X,
-			Y: img2.Bounds().Max.Y + img1.Bounds().Max.Y,
+			X: x,
+			Y: offset,
 		},
 	}
 	finImage := image.NewRGBA(newRect)
