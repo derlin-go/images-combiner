@@ -54,6 +54,63 @@ func ParseColor(hexString string) (color.Color, error) {
 	return color.RGBA{bs[0], bs[1], bs[2], alpha}, nil
 }
 
+func Compose(images []image.Image, outFile string, bgColor color.Color, opaque bool, yGap int, yGapColor color.Color) error {
+
+	// find min width
+	width := math.MaxInt32
+	for _, img := range (images) {
+		if img.Bounds().Max.X < width {
+			width = img.Bounds().Max.X
+		}
+	}
+
+	// resize all the images
+	height := 0
+	for i, img := range (images) {
+		ResizeTo(&img, width)
+		height += img.Bounds().Max.Y + yGap
+		images[i] = img
+	}
+
+	// -------- create the composite image
+
+	// first, create a uniform image
+	compositeImage := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(compositeImage, compositeImage.Bounds(), &image.Uniform{bgColor}, image.ZP, draw.Src)
+	// the offset is where to draw the next image (default to 0,0)
+	offset := image.ZP
+	var gapImg *image.RGBA;
+
+	// the gapImg is used/drawn only in case gap color != bg color
+	if yGap > 0 && yGapColor != bgColor {
+		gapImg = image.NewRGBA(image.Rect(0, 0, width, yGap))
+		draw.Draw(gapImg, gapImg.Bounds(), &image.Uniform{yGapColor}, image.ZP, draw.Src)
+	}
+
+	// draw each image over the composite image
+	for _, img := range (images) {
+		draw.Draw(compositeImage, img.Bounds().Add(offset), img, image.ZP, draw.Over)
+		offset.Y += img.Bounds().Max.Y
+		if gapImg != nil {
+			// gap color != bg color, draw it
+			draw.Draw(compositeImage, img.Bounds().Add(offset), gapImg, image.ZP, draw.Over)
+		}
+		offset.Y += yGap
+	}
+
+	// Create a new file and write the composite image in png format
+	out, err := os.Create(outFile)
+	if err != nil {
+		return err
+	}
+	err = png.Encode(out, compositeImage)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func main() {
 
 	var yGap int;
@@ -63,6 +120,7 @@ func main() {
 	var bgColor color.Color = color.Transparent;
 
 	// --------- program arguments
+
 
 	// register and parse program arguments
 	flag.IntVar(&yGap, "gap", 0, "gap between images");
@@ -101,59 +159,21 @@ func main() {
 
 	image_paths := os.Args[len(os.Args) - flag.NArg():]
 	images := make([]image.Image, len(image_paths))
-	width := math.MaxInt32;
 
-	// open and decode the images, while keeping track of the smallest width
+	if len(images) == 0 {
+		fmt.Println("No images specified.")
+		os.Exit(0)
+	}
+
+	// open and decode the images
 	for idx, path := range (image_paths) {
 		img, _, _ := OpenAndDecode(path)
-		if img.Bounds().Max.X < width {
-			width = img.Bounds().Max.X
-		}
 		images[idx] = img
 	}
 
-	// resize all the images
-	height := 0
-	for i, img := range (images) {
-		ResizeTo(&img, width)
-		height += img.Bounds().Max.Y + yGap
-		images[i] = img
-	}
-
-	// -------- create the composite image
-
-	// first, create a uniform image
-	compositeImage := image.NewRGBA(image.Rect(0, 0, width, height))
-	draw.Draw(compositeImage, compositeImage.Bounds(), &image.Uniform{bgColor}, image.ZP, draw.Src)
-	// the offset is where to draw the next image (default to 0,0)
-	offset := image.ZP
-	var gapImg *image.RGBA;
-
-	// the gapImg is used/drawn only in case gap color != bg color
-	if yGap > 0 && yGapColor != bgColor {
-		gapImg = image.NewRGBA(image.Rect(0, 0, width, yGap))
-		draw.Draw(gapImg, gapImg.Bounds(), &image.Uniform{yGapColor}, image.ZP, draw.Src)
-	}
-
-	// draw each image over the composite image
-	for _, img := range (images) {
-		draw.Draw(compositeImage, img.Bounds().Add(offset), img, image.ZP, draw.Over)
-		offset.Y += img.Bounds().Max.Y
-		if gapImg != nil { // gap color != bg color, draw it
-			draw.Draw(compositeImage, img.Bounds().Add(offset), gapImg, image.ZP, draw.Over)
-		}
-		offset.Y += yGap
-	}
-
-	// Create a new file and write the composite image in png format
-	out, err := os.Create("./output.png")
+	err := Compose(images, "./output.png", bgColor, opaque, yGap, yGapColor)
 	if err != nil {
 		panic(err)
-		os.Exit(1)
 	}
-	err = png.Encode(out, compositeImage)
-	if err != nil {
-		panic(err)
-		os.Exit(1)
-	}
+
 }
