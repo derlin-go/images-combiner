@@ -12,6 +12,7 @@ import (
 	"math"
 	"fmt"
 	"flag"
+	"encoding/hex"
 )
 
 // Create a struct to deal with pixel
@@ -75,9 +76,21 @@ func main() {
 
 	var yGap int;
 	var yGapStrColor string;
+	var yGapColor color.Color = color.White;
 	flag.IntVar(&yGap, "gap", 0, "gap between images");
-	flag.IntVar(&yGapStrColor, "gapColor", 0, "color of gap between images");
+	flag.StringVar(&yGapStrColor, "gapColor", "", "color of gap between images");
 	flag.Parse();
+
+	if yGapStrColor != "" {
+		bs, _ := hex.DecodeString(yGapStrColor)
+		var alpha uint8 = 255;
+		if 3 < len(bs) && len(bs) > 4 {
+			fmt.Println("error: undefined gap color")
+			os.Exit(1)
+		}
+		if len(bs) > 3 { alpha = bs[3]; }
+		yGapColor = color.RGBA{bs[0], bs[1], bs[2], alpha}
+	}
 
 	image_paths := os.Args[len(os.Args) - flag.NArg():];
 	images := make([]image.Image, len(image_paths))
@@ -100,7 +113,7 @@ func main() {
 		pixels = append(pixels, DecodePixelsFromImage(img, 0, offset)...);
 		offset += img.Bounds().Max.Y;
 		if yGap > 0 && i < len(images) - 1 {
-			pixels = append(pixels, CreateGap(x, yGap, offset, color.RGBA{255,255,255,255})...)
+			pixels = append(pixels, CreateGap(x, yGap, offset, yGapColor)...)
 			offset += int(yGap);
 		}
 	}
