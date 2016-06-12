@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"flag"
 	"encoding/hex"
+	"errors"
 )
 
 // Create a struct to deal with pixel
@@ -23,7 +24,7 @@ type Pixel struct {
 
 func ResizeTo(img *image.Image, x int) {
 	if ((*img).Bounds().Max.X != x) {
-		*img = resize.Resize(uint(x), 0, *img, resize.Lanczos3)
+		*img = resize.Resize(uint(x), 0, *img, resize.NearestNeighbor)
 	}
 }
 
@@ -57,9 +58,9 @@ func DecodePixelsFromImage(img image.Image, offsetX, offsetY int) []*Pixel {
 }
 
 func CreateGap(x int, yGap int, offsetY int, color color.Color) []*Pixel {
-	gapPixels := make([]*Pixel, x*yGap);
+	gapPixels := make([]*Pixel, x * yGap);
 	idx := 0
-	for i := offsetY; i < offsetY+yGap; i++ {
+	for i := offsetY; i < offsetY + yGap; i++ {
 		for j := 0; j < x; j++ {
 			gapPixels[idx] = &Pixel{
 				Point: image.Point{j, i},
@@ -72,48 +73,75 @@ func CreateGap(x int, yGap int, offsetY int, color color.Color) []*Pixel {
 	return gapPixels
 }
 
+func ParseColor(hexString string) (color.Color, error) {
+	bs, _ := hex.DecodeString(hexString)
+	var alpha uint8 = 255;
+	if 3 < len(bs) && len(bs) > 4 {
+		return nil, errors.New("undefined color")
+	}
+	if len(bs) > 3 {
+		alpha = bs[3]; }
+	return color.RGBA{bs[0], bs[1], bs[2], alpha}, nil
+}
+
 func main() {
 
 	var yGap int;
-	var yGapStrColor string;
-	var yGapColor color.Color = color.White;
+	var opaque bool;
+	var yGapStrColor, bgStrColor string;
+	var yGapColor color.Color;
+	var bgColor color.Color = nil;
+
 	flag.IntVar(&yGap, "gap", 0, "gap between images");
-	flag.StringVar(&yGapStrColor, "gapColor", "", "color of gap between images");
+	flag.BoolVar(&opaque, "opaque", false, "replace transparency by white or bgColor (if defined)");
+	flag.StringVar(&yGapStrColor, "gapColor", "", "color of gap between images, as an hex string");
+	flag.StringVar(&bgStrColor, "bgColor", "", "replace alpha to (leave empty to keep transparency");
 	flag.Parse();
 
-	if yGapStrColor != "" {
-		bs, _ := hex.DecodeString(yGapStrColor)
-		var alpha uint8 = 255;
-		if 3 < len(bs) && len(bs) > 4 {
-			fmt.Println("error: undefined gap color")
-			os.Exit(1)
+
+	if opaque || bgStrColor != "" {
+		if bgStrColor != "" {
+			var err error;
+			bgColor, err = ParseColor(bgStrColor)
+			if (err != nil) {
+				fmt.Println(err)
+				os.Exit(0)
+			}
+		} else {
+			bgColor = color.White;
 		}
-		if len(bs) > 3 { alpha = bs[3]; }
-		yGapColor = color.RGBA{bs[0], bs[1], bs[2], alpha}
+		yGapColor = bgColor;
+	}
+
+	if yGapStrColor != "" { // default to bgcolor
+		var err error;
+		yGapColor, err = ParseColor(yGapStrColor)
+		if (err != nil) {
+			fmt.Println(err)
+			os.Exit(0)
+		}
 	}
 
 	image_paths := os.Args[len(os.Args) - flag.NArg():];
 	images := make([]image.Image, len(image_paths))
 	var pixels []*Pixel;
-	x := math.MaxInt32;
+	width := math.MaxInt32;
 
 	for idx, path := range (image_paths) {
 		img, _, _ := OpenAndDecode(path);
-		if img.Bounds().Max.X < x {
-			x = img.Bounds().Max.X
+		if img.Bounds().Max.X < width {
+			width = img.Bounds().Max.X
 		}
 		images[idx] = img
 	}
 
-	fmt.Println(yGap)
-
 	offset := 0;
 	for i, img := range (images) {
-		ResizeTo(&img, x)
+		ResizeTo(&img, width)
 		pixels = append(pixels, DecodePixelsFromImage(img, 0, offset)...);
 		offset += img.Bounds().Max.Y;
 		if yGap > 0 && i < len(images) - 1 {
-			pixels = append(pixels, CreateGap(x, yGap, offset, yGapColor)...)
+			pixels = append(pixels, CreateGap(width, yGap, offset, yGapColor)...)
 			offset += int(yGap);
 		}
 	}
@@ -124,7 +152,7 @@ func main() {
 	newRect := image.Rectangle{
 		Min: images[0].Bounds().Min,
 		Max: image.Point{
-			X: x,
+			X: width,
 			Y: offset,
 		},
 	}
@@ -138,7 +166,16 @@ func main() {
 			px.Color,
 		)
 	}
-	draw.Draw(finImage, finImage.Bounds(), finImage, image.Point{0, 0}, draw.Src)
+
+	fmt.Println(finImage.Bounds())
+	dst := image.NewRGBA(finImage.Bounds())
+	fmt.Println(dst.Bounds())
+	if bgColor != nil {
+		draw.Draw(dst, dst.Bounds(), &image.Uniform{bgColor}, image.ZP, draw.Src)
+		draw.Draw(dst, finImage.Bounds(), finImage, image.ZP, draw.Over)
+	} else {
+		draw.Draw(dst, finImage.Bounds(), finImage, image.ZP, draw.Src)
+	}
 
 	// Create a new file and write to it
 	out, err := os.Create("./output.png")
@@ -146,7 +183,7 @@ func main() {
 		panic(err)
 		os.Exit(1)
 	}
-	err = png.Encode(out, finImage)
+	err = png.Encode(out, dst)
 	if err != nil {
 		panic(err)
 		os.Exit(1)
